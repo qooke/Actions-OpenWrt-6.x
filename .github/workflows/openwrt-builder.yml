@@ -13,7 +13,7 @@ env:
   DIY_P2_SH: diy-part2.sh
   TZ: Asia/Hong_Kong
 
-# 只保留最新一个 Job
+# 只保留最新一次构建
 concurrency:
   group: openwrt-builder
   cancel-in-progress: true
@@ -70,43 +70,43 @@ jobs:
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
     - name: Download & build firmware
+      id: build
       run: |
         cd openwrt
         make defconfig
         make download -j$(nproc)
         make -j$(nproc)
 
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | \
-          sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        DEVICE=$(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | \
+          sed -r 's/.*DEVICE_(.*)=y/\1/')
 
-        echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
-        echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        echo "device_name=_${DEVICE}" >> $GITHUB_OUTPUT
+        echo "build_time=$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
 
-    - name: Upload firmware artifact
+    - name: Prepare firmware directory
+      id: firmware
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-      shell: bash
+        echo "path=$PWD" >> $GITHUB_OUTPUT
 
-    - uses: actions/upload-artifact@v4
+    - name: Upload firmware artifact
+      uses: actions/upload-artifact@v4
       with:
-        name: OpenWrt${{ env.DEVICE_NAME }}
-        path: ${{ env.FIRMWARE }}
+        name: OpenWrt${{ steps.build.outputs.device_name }}
+        path: ${{ steps.firmware.outputs.path }}
 
-    # 始终只保留一个 latest Release
     - name: Publish latest release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: latest
         name: OpenWrt Latest Build
-        files: ${{ env.FIRMWARE }}/*
+        files: ${{ steps.firmware.outputs.path }}/*
         prerelease: false
         draft: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # 自动清理旧 workflow runs
     - name: Cleanup old workflow runs
       uses: Mattraks/delete-workflow-runs@v2
       with:
